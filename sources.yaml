@@ -1,42 +1,73 @@
 # Une entrée = un agenda .ics (une couleur dans Google Agenda).
-# Songkick expose ses événements dans un format lisible par le script.
+# parser : jsonld (défaut, ex. Songkick) | spotlight | lillarious
+# venues : ne garde que les événements dont le lieu contient l'un de ces mots
+# exclude_venues / cities : filtres complémentaires (accents et majuscules ignorés)
+
+# Pages « toute la métropole » de Songkick, réutilisées par plusieurs sources
+# (lues une seule fois par run).
+x-metro: &metro
+  - https://www.songkick.com/metro-areas/28886-france-lille
+  - https://www.songkick.com/metro-areas/28886-france-lille?page=2
+  - https://www.songkick.com/metro-areas/28886-france-lille?page=3
+  - https://www.songkick.com/metro-areas/28886-france-lille?page=4
+  - https://www.songkick.com/metro-areas/28886-france-lille?page=5
+  - https://www.songkick.com/metro-areas/28886-france-lille?page=6
 
 sources:
   - id: aeronef
     name: L'Aéronef
+    venues: [aeronef]
     urls:
-      - https://www.songkick.com/venues/98792-laeronef
       - https://www.songkick.com/venues/98792-laeronef/calendar
       - https://www.songkick.com/venues/98792-laeronef/calendar?page=2
 
   - id: zenith-grand-palais
     name: Zénith & Lille Grand Palais
+    venues: [zenith, lille grand palais]
     urls:
-      - https://www.songkick.com/venues/514631-zenith-arena-de-lille
       - https://www.songkick.com/venues/514631-zenith-arena-de-lille/calendar
       - https://www.songkick.com/venues/514631-zenith-arena-de-lille/calendar?page=2
       - https://www.songkick.com/venues/514631-zenith-arena-de-lille/calendar?page=3
+      - *metro   # pour le Grand Théâtre et la Salle Pasteur du Grand Palais
 
   - id: nouveau-siecle
     name: Le Nouveau Siècle
+    venues: [siecle]
     urls:
       - https://www.songkick.com/venues/592126-nouveau-siecle
       - https://www.songkick.com/venues/4535550-le-nouveau-siecle-auditorium
       - https://www.songkick.com/venues/3506949-auditorium-du-nouveau-siecle
 
+  - id: grand-mix
+    name: Le Grand Mix
+    venues: [grand mix]
+    urls: *metro
+
+  - id: autres-scenes-mel
+    name: Autres scènes MEL
+    exclude_venues: [aeronef, zenith, lille grand palais, siecle, grand mix]
+    cities: [Lille, Lomme, Hellemmes, Roubaix, Tourcoing, Villeneuve d'Ascq,
+             Villeneuve D’Ascq, Lambersart, La Madeleine, Marcq-en-Baroeul,
+             Mons-en-Baroeul, Croix, Wasquehal, Wattrelos, Hem, Loos,
+             Haubourdin, Ronchin, Lezennes, Faches-Thumesnil, Saint-Andre-lez-Lille,
+             Marquette-lez-Lille, Wambrechies, Seclin, Armentieres, Halluin]
+    urls: *metro
+
   - id: spotlight
     name: Le Spotlight
-    urls: []   # à compléter
+    parser: spotlight
+    pages: {url: "https://www.lespotlight.fr/spectacles/page/{n}/", max: 15}
 
   - id: festivals
     name: Festivals Lille
-    urls: []
+    parser: lillarious
+    urls:
+      - https://lillarious.com/programmation
 
-manual: []
-# Exemple (retire les # et le "[]" ci-dessus, puis mets les vraies dates) :
-# manual:
-#   - source: festivals
-#     name: Series Mania
-#     start: AAAA-MM-JJ
-#     end: AAAA-MM-JJ
-#     url: https://seriesmania.com
+# Événements ajoutés à la main (date seule = journée entière ; "end" inclus).
+manual:
+  - source: festivals
+    name: Series Mania
+    start: 2027-03-19
+    end: 2027-03-26
+    url: https://seriesmania.com

@@ -1,8 +1,11 @@
 """Génère un .ics par source (+ tout.ics) dans public/ à partir de sources.yaml."""
 import hashlib
 import json
+import re
 import sys
+import unicodedata
 from datetime import date, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -15,10 +18,20 @@ from icalendar import Calendar, Event
 TZ = ZoneInfo("Europe/Paris")
 OUT = Path("public")
 HEADERS = {"User-Agent": "Mozilla/5.0 (agenda-lille perso; GitHub Actions)"}
+MOIS = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet",
+        "aout", "septembre", "octobre", "novembre", "decembre"]
+MOIS_RE = "|".join(MOIS)
 
+
+def norm(s):
+    """Minuscules sans accents, pour comparer « Siècle » et « Siecle »."""
+    s = unicodedata.normalize("NFD", str(s or "")).encode("ascii", "ignore").decode()
+    return s.lower()
+
+
+# ---------- Parseur générique : événements schema.org (JSON-LD) ----------
 
 def walk(node):
-    """Parcourt un JSON-LD (dicts, listes, @graph) et renvoie tous les objets."""
     if isinstance(node, list):
         for x in node:
             yield from walk(x)
@@ -39,6 +52,8 @@ def parse_dt(value):
     """'2026-11-20' -> date (journée entière) ; avec heure -> datetime Europe/Paris."""
     if not value:
         return None
+    if isinstance(value, (date, datetime)):
+        return value
     value = str(value).strip()
     if len(value) == 10:
         return date.fromisoformat(value)
@@ -54,8 +69,14 @@ def text(v):
     return str(v or "")
 
 
-def events_from_html(html, page_url):
-    soup = BeautifulSoup(html, "html.parser")
+def city_of(loc):
+    if isinstance(loc, list):
+        loc = loc[0] if loc else {}
+    addr = loc.get("address") if isinstance(loc, dict) else None
+    return addr.get("addressLocality", "") if isinstance(addr, dict) else ""
+
+
+def parse_jsonld(soup, page_url):
     found = []
     for tag in soup.find_all("script", type="application/ld+json"):
         try:
@@ -73,16 +94,100 @@ def events_from_html(html, page_url):
                 "start": start,
                 "end": parse_dt(obj.get("endDate")),
                 "location": text(obj.get("location")),
+                "city": city_of(obj.get("location")),
                 "url": text(obj.get("url")) or page_url,
             })
     return found
 
 
+# ---------- Parseurs dédiés (dates écrites en français) ----------
+
+def fr_datetime(day, month_name, year, hour, minute):
+    month = MOIS.index(norm(month_name)) + 1
+    if year is None:  # pas d'année affichée : on prend la prochaine occurrence
+        today = date.today()
+        year = today.year + (1 if month < today.month - 1 else 0)
+    return datetime(int(year), month, int(day), int(hour), int(minute or 0), tzinfo=TZ)
+
+
+def parse_spotlight(soup, page_url):
+    """Cartes : <h2>Titre</h2> puis « 05 novembre - 19h » et un lien Mapado."""
+    date_re = re.compile(rf"(\d{{1,2}})\s+({MOIS_RE})\s*-\s*(\d{{1,2}})h(\d{{2}})?")
+    found = []
+    for h2 in soup.find_all("h2"):
+        buf, link = "", None
+        for el in h2.next_elements:
+            if getattr(el, "name", None) == "h2":
+                break
+            if getattr(el, "name", None) == "a" and link is None and "mapado" in el.get("href", ""):
+                link = el["href"]
+            if isinstance(el, str):
+                buf += " " + el
+        m = date_re.search(norm(buf))
+        if not m:
+            continue
+        found.append({
+            "name": h2.get_text(" ", strip=True),
+            "start": fr_datetime(m[1], m[2], None, m[3], m[4]),
+            "end": None,
+            "location": "Le Spotlight, 100 rue Léon Gambetta, Lille",
+            "city": "Lille",
+            "url": link or page_url,
+        })
+    return found
+
+
+def parse_lillarious(soup, page_url):
+    """Liens /events/ : « 29 janvier 2027 - 19:00 Titre Lieu, Lille »."""
+    date_re = re.compile(rf"^(\d{{1,2}})(?:er)?\s+({MOIS_RE})\s+(\d{{4}})\s*-\s*(\d{{1,2}}):(\d{{2}})")
+    found, seen = [], set()
+    for a in soup.find_all("a", href=True):
+        if "/events/" not in a["href"] or a["href"] in seen:
+            continue
+        parts = list(a.stripped_strings)
+        m = date_re.match(norm(" ".join(parts)))
+        if not m:
+            continue
+        seen.add(a["href"])
+        if len(parts) >= 3:  # [date, titre, lieu] quand le HTML les sépare
+            name, location = parts[1], ", ".join(parts[2:])
+        else:
+            name = " ".join(parts)[m.end():].strip() if len(parts) == 1 else parts[1]
+            location = ""
+        found.append({
+            "name": f"Lillarious – {name}",
+            "start": fr_datetime(m[1], m[2], m[3], m[4], m[5]),
+            "end": None,
+            "location": location,
+            "city": "Lille",
+            "url": requests.compat.urljoin(page_url, a["href"]),
+        })
+    return found
+
+
+PARSERS = {"jsonld": parse_jsonld, "spotlight": parse_spotlight, "lillarious": parse_lillarious}
+
+
+@lru_cache(maxsize=None)  # une page partagée par plusieurs sources n'est lue qu'une fois
 def fetch(url):
     r = requests.get(url, headers=HEADERS, timeout=30)
     r.raise_for_status()
     return r.text
 
+
+def keep(ev, src):
+    """Filtres optionnels : venues (lieu contient…), exclude_venues, cities."""
+    loc = norm(ev.get("location"))
+    if src.get("venues") and not any(norm(v) in loc for v in src["venues"]):
+        return False
+    if any(norm(v) in loc for v in src.get("exclude_venues") or []):
+        return False
+    if src.get("cities") and norm(ev.get("city")) not in {norm(c) for c in src["cities"]}:
+        return False
+    return True
+
+
+# ---------- Écriture iCalendar ----------
 
 def to_ical_event(src_id, ev):
     e = Event()
@@ -93,7 +198,7 @@ def to_ical_event(src_id, ev):
     else:  # journée(s) entière(s) : DTEND exclusif en iCal
         end_day = end.date() if isinstance(end, datetime) else (end or start)
         end = end_day + timedelta(days=1)
-    key = f"{src_id}|{ev['name'].lower()}|{start.isoformat()}"
+    key = f"{src_id}|{norm(ev['name'])}|{start.isoformat()}"
     e.add("uid", hashlib.sha1(key.encode()).hexdigest() + "@agenda-lille")
     e.add("summary", ev["name"])
     e.add("dtstart", start)
@@ -116,29 +221,44 @@ def calendar(name):
     return cal
 
 
+def source_urls(src):
+    urls = []
+    for u in src.get("urls") or []:  # aplatit les listes partagées (*metro)
+        urls += u if isinstance(u, list) else [u]
+    pages = src.get("pages")  # {"url": ".../page/{n}/", "max": 15}
+    if pages:
+        urls += [pages["url"].format(n=n) for n in range(1, pages.get("max", 10) + 1)]
+    return urls
+
+
 def main():
     cfg = yaml.safe_load(Path("sources.yaml").read_text(encoding="utf-8"))
     OUT.mkdir(exist_ok=True)
     today = date.today()
-    everything = calendar("Sorties Lille (tout)")
+    everything = calendar("Sorties Lille")
     total = 0
 
     for src in cfg["sources"]:
+        parse = PARSERS[src.get("parser", "jsonld")]
         events = []
-        for url in src.get("urls") or []:
+        for url in source_urls(src):
             try:
-                found = events_from_html(fetch(url), url)
-                print(f"[{src['id']}] {len(found):3d} événements  <- {url}")
-                events += found
-            except Exception as exc:  # une source en panne ne bloque pas les autres
-                print(f"[{src['id']}] ERREUR {exc}  <- {url}")
+                found = parse(BeautifulSoup(fetch(url), "html.parser"), url)
+            except Exception as exc:  # une page en panne ne bloque pas le reste
+                print(f"[{src['id']}] ERREUR {str(exc)[:80]}  <- {url}")
+                if src.get("pages"):
+                    break  # fin de la pagination
+                continue
+            kept = [e for e in found if keep(e, src)]
+            print(f"[{src['id']}] {len(kept):3d}/{len(found):3d} gardés  <- {url}")
+            if src.get("pages") and not found:
+                break
+            events += kept
         for m in cfg.get("manual") or []:
             if m["source"] == src["id"]:
                 events.append({
-                    "name": m["name"],
-                    "start": parse_dt(m["start"]),
-                    "end": parse_dt(m.get("end")),
-                    "location": m.get("location", ""),
+                    "name": m["name"], "start": parse_dt(m["start"]),
+                    "end": parse_dt(m.get("end")), "location": m.get("location", ""),
                     "url": m.get("url", ""),
                 })
 
@@ -159,13 +279,13 @@ def main():
         total += len(seen)
 
     everything.add_missing_timezones()
-    (OUT / "tout.ics").write_bytes(everything.to_ical())
+    (OUT / "sorties-lille.ics").write_bytes(everything.to_ical())
     links = "".join(
         f'<li><a href="{s["id"]}.ics">{s["name"]}</a></li>' for s in cfg["sources"]
     )
     (OUT / "index.html").write_text(
         f'<meta charset="utf-8"><h1>Agenda Lille</h1><ul>{links}'
-        f'<li><a href="tout.ics">Tout</a></li></ul>',
+        f'<li><a href="sorties-lille.ics">Sorties Lille (tout)</a></li></ul>',
         encoding="utf-8",
     )
     print(f"Total : {total} événements")
