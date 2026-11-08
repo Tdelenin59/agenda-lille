@@ -225,7 +225,80 @@ def parse_sebastopol(soup, page_url):
     return found
 
 
-PARSERS = {"jsonld": parse_jsonld, "aeronef": parse_aeronef, "sebastopol": parse_sebastopol, "spotlight": parse_spotlight, "lillarious": parse_lillarious}
+NS_TIME = re.compile(r"(\d{1,2})h(\d{2})?")
+NS_DATE = re.compile(r"(\d{1,2})(?:-(\d{1,2}))?(?:-(\d{4}))?")
+
+
+def expand_dates(txt):
+    """« 29,30 et 31-01-2027 » ou « 24-09 et 25-09-2026 » -> liste de (jour, mois, année).
+    Le mois et l'année manquants sont repris de la date suivante."""
+    found = [[int(d), m and int(m), y and int(y)] for d, m, y in NS_DATE.findall(txt)]
+    nxt_m = nxt_y = None
+    for item in reversed(found):
+        item[1] = item[1] or nxt_m
+        item[2] = item[2] or nxt_y
+        nxt_m, nxt_y = item[1], item[2]
+    return [tuple(i) for i in found if i[1] and i[2]]
+
+
+def parse_nouveausiecle(soup, page_url):
+    """Cartes : <h6>11-11-2026 20h00</h6> puis <h4>Titre</h4>. Une date × un horaire = un événement."""
+    found = []
+    for h6 in soup.find_all("h6"):
+        raw = h6.get_text(" ", strip=True)
+        times = NS_TIME.findall(raw)
+        dates = expand_dates(NS_TIME.sub(" ", raw))
+        h4 = h6.find_next("h4")
+        a = h6.find("a", href=True)
+        if not dates or not h4:
+            continue
+        for d, m, y in dates:
+            for hh, mm in (times or [(None, None)]):
+                start = (datetime(y, m, d, int(hh), int(mm or 0), tzinfo=TZ)
+                         if hh else date(y, m, d))
+                found.append({
+                    "name": h4.get_text(" ", strip=True), "start": start, "end": None,
+                    "location": "Le Nouveau Siècle, Lille", "city": "Lille",
+                    "url": requests.compat.urljoin(page_url, a["href"]) if a else page_url,
+                })
+    return found
+
+
+OPERA_DAY = re.compile(rf"^(?:lun|mar|mer|jeu|ven|sam|dim)\.?\s+(\d{{1,2}})(?:er)?\s+({MOIS_ACC})$", re.I)
+OPERA_GENRES = ["opéra itinérant", "travelling opera", "sortie en famille", "family outing",
+                "hors les murs", "off-site", "semaine ouverte", "open week", "heure bleue",
+                "insomniaque", "sieste", "concert", "danse", "dance", "opéra", "opera"]
+
+
+def parse_opera(soup, page_url):
+    """Menu « Calendrier » : « Mar. 10 Novembre » suivi des liens /spectacle/ de ce jour."""
+    found, seen = [], set()
+    for node in soup.find_all(string=OPERA_DAY):
+        m = OPERA_DAY.match(node.strip())
+        day = fr_datetime(m[1], m[2], None, 0, 0).date()
+        for el in node.next_elements:
+            if isinstance(el, str) and el is not node and OPERA_DAY.match(el.strip()):
+                break  # jour suivant
+            if getattr(el, "name", None) != "a":
+                continue
+            href = el.get("href", "")
+            if "/spectacle/" not in href:
+                break  # fin du calendrier
+            name = el.get_text(" ", strip=True)
+            for g in OPERA_GENRES:  # retire le genre collé à la fin du titre
+                if norm(name).endswith(" " + norm(g)):
+                    name = name[: -len(g)].strip()
+                    break
+            if (href, day) in seen:
+                continue
+            seen.add((href, day))
+            found.append({"name": name, "start": day, "end": None,
+                          "location": "Opéra de Lille", "city": "Lille", "url": href})
+    return found
+
+
+PARSERS = {"jsonld": parse_jsonld, "aeronef": parse_aeronef, "sebastopol": parse_sebastopol,
+           "nouveausiecle": parse_nouveausiecle, "opera": parse_opera, "spotlight": parse_spotlight, "lillarious": parse_lillarious}
 
 
 @lru_cache(maxsize=None)  # une page partagée par plusieurs sources n'est lue qu'une fois

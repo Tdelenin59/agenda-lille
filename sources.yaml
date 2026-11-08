@@ -1,5 +1,5 @@
 # Une entrée = un agenda .ics (une couleur dans Google Agenda).
-# parser : jsonld (défaut, ex. Songkick) | aeronef | sebastopol | spotlight | lillarious
+# parser : jsonld (défaut, ex. Songkick) | aeronef | sebastopol | nouveausiecle | opera | spotlight | lillarious
 # venues : ne garde que les événements dont le lieu contient l'un de ces mots
 # exclude_venues / cities : filtres complémentaires (accents et majuscules ignorés)
 
@@ -12,6 +12,10 @@ x-metro: &metro
   - https://www.songkick.com/metro-areas/28886-france-lille?page=4
   - https://www.songkick.com/metro-areas/28886-france-lille?page=5
   - https://www.songkick.com/metro-areas/28886-france-lille?page=6
+  - https://www.songkick.com/metro-areas/28886-france-lille?page=7
+  - https://www.songkick.com/metro-areas/28886-france-lille?page=8
+  - https://www.songkick.com/metro-areas/28886-france-lille?page=9
+  - https://www.songkick.com/metro-areas/28886-france-lille?page=10
 
 sources:
   - id: aeronef
@@ -30,16 +34,39 @@ sources:
 
   - id: nouveau-siecle
     name: Le Nouveau Siècle
-    venues: [siecle]
+    parser: nouveausiecle   # site officiel : agenda du lieu + programmation de l'ONL
     urls:
-      - https://www.songkick.com/venues/592126-nouveau-siecle
-      - https://www.songkick.com/venues/4535550-le-nouveau-siecle-auditorium
-      - https://www.songkick.com/venues/3506949-auditorium-du-nouveau-siecle
+      - https://www.lenouveausiecle.fr/-Agenda-1-
+      - https://www.lenouveausiecle.fr/-Programmation-ONL-
 
   - id: grand-mix
     name: Le Grand Mix
     venues: [grand mix]
+    urls:
+      - https://www.songkick.com/venues/30938-le-grand-mix/calendar
+      - https://www.songkick.com/venues/30938-le-grand-mix/calendar?page=2
+      - https://www.songkick.com/venues/4609796-le-grand-mix-club
+
+  - id: splendid
+    name: Le Splendid
+    venues: [splendid]
     urls: *metro
+
+  - id: casino-barriere
+    name: Casino Barrière
+    venues: [casino barriere]
+    urls: *metro
+
+  - id: condition-publique
+    name: La Condition Publique
+    venues: [condition publique]
+    urls: *metro
+
+  - id: opera
+    name: Opéra de Lille
+    parser: opera   # pas d'horaire sur le calendrier du site : événements sur la journée
+    urls:
+      - https://www.opera-lille.fr/
 
   - id: sebastopol
     name: Théâtre Sébastopol
@@ -53,7 +80,8 @@ sources:
 
   - id: autres-scenes-mel
     name: Autres scènes MEL
-    exclude_venues: [aeronef, zenith, lille grand palais, siecle, grand mix, sebastopol]
+    exclude_venues: [aeronef, zenith, lille grand palais, siecle, grand mix, sebastopol,
+                     splendid, casino barriere, condition publique]
     cities: [Lille, Lomme, Hellemmes, Roubaix, Tourcoing, Villeneuve d'Ascq,
              Villeneuve D’Ascq, Lambersart, La Madeleine, Marcq-en-Baroeul,
              Mons-en-Baroeul, Croix, Wasquehal, Wattrelos, Hem, Loos,
@@ -68,9 +96,7 @@ sources:
 
   - id: festivals
     name: Festivals Lille
-    parser: lillarious
-    urls:
-      - https://lillarious.com/programmation
+    urls: []   # Lillarious est déjà couvert par les salles (Sébastopol, Nouveau Siècle)
 
 # Événements ajoutés à la main (date seule = journée entière ; "end" inclus).
 manual:
