@@ -270,9 +270,27 @@ OPERA_GENRES = ["opéra itinérant", "travelling opera", "sortie en famille", "f
                 "insomniaque", "sieste", "concert", "danse", "dance", "opéra", "opera"]
 
 
+OPERA_PERF = re.compile(rf"(\d{{1,2}})(?:er)?\s+({MOIS_ACC})\s+(\d{{4}})\D{{0,12}}?(\d{{1,2}})[:h](\d{{2}})", re.I)
+
+
+def opera_times(href):
+    """Horaires des représentations lus sur la page du spectacle : {date: [datetime, ...]}."""
+    try:
+        txt = BeautifulSoup(fetch(href), "html.parser").get_text(" ")
+    except Exception as exc:
+        print(f"[opera] page spectacle illisible ({str(exc)[:60]}) <- {href}")
+        return {}
+    times = {}
+    for d, mo, y, hh, mm in OPERA_PERF.findall(txt):
+        dt = fr_datetime(d, mo, y, hh, mm)
+        times.setdefault(dt.date(), set()).add(dt)
+    return times
+
+
 def parse_opera(soup, page_url):
-    """Menu « Calendrier » : « Mar. 10 Novembre » suivi des liens /spectacle/ de ce jour."""
-    found, seen = [], set()
+    """Menu « Calendrier » : « Mar. 10 Novembre » suivi des liens /spectacle/ de ce jour.
+    L'horaire est ensuite lu sur la page de chaque spectacle."""
+    days = {}  # href -> (titre, {dates})
     for node in soup.find_all(string=OPERA_DAY):
         m = OPERA_DAY.match(node.strip())
         day = fr_datetime(m[1], m[2], None, 0, 0).date()
@@ -289,11 +307,15 @@ def parse_opera(soup, page_url):
                 if norm(name).endswith(" " + norm(g)):
                     name = name[: -len(g)].strip()
                     break
-            if (href, day) in seen:
-                continue
-            seen.add((href, day))
-            found.append({"name": name, "start": day, "end": None,
-                          "location": "Opéra de Lille", "city": "Lille", "url": href})
+            days.setdefault(href, (name, set()))[1].add(day)
+
+    found = []
+    for href, (name, dates) in days.items():
+        times = opera_times(href)
+        for day in sorted(dates):
+            for start in sorted(times.get(day) or [day]):  # pas d'horaire trouvé : journée entière
+                found.append({"name": name, "start": start, "end": None,
+                              "location": "Opéra de Lille", "city": "Lille", "url": href})
     return found
 
 
