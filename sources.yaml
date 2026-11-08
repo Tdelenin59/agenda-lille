@@ -1,36 +1,37 @@
-# Une entrée = un agenda .ics (donc une couleur dans Google Agenda).
-# "urls" : pages programmation à lire. Le script y cherche les événements
-# décrits au format schema.org (JSON-LD), présents sur beaucoup de sites
-# de salles et de billetteries. Le log du run dit combien il en trouve par URL.
+# Une entrée = un agenda .ics (une couleur dans Google Agenda).
+# Songkick expose ses événements dans un format lisible par le script.
 
 sources:
   - id: aeronef
     name: L'Aéronef
     urls:
-      - https://aeronef.fr/agenda
-      - https://www.songkick.com/venues/98792-laeronef   # secours si le site officiel ne donne rien
+      - https://www.songkick.com/venues/98792-laeronef
+      - https://www.songkick.com/venues/98792-laeronef/calendar
+      - https://www.songkick.com/venues/98792-laeronef/calendar?page=2
 
   - id: zenith-grand-palais
     name: Zénith & Lille Grand Palais
     urls:
-      - https://www.zenithdelille.com/programmation/      # URL à confirmer au 1er run
-      - https://www.lillegrandpalais.com/programmation/   # URL à confirmer au 1er run
+      - https://www.songkick.com/venues/514631-zenith-arena-de-lille
+      - https://www.songkick.com/venues/514631-zenith-arena-de-lille/calendar
+      - https://www.songkick.com/venues/514631-zenith-arena-de-lille/calendar?page=2
+      - https://www.songkick.com/venues/514631-zenith-arena-de-lille/calendar?page=3
 
   - id: nouveau-siecle
     name: Le Nouveau Siècle
     urls:
-      - https://www.jds.fr/lille/salle-de-concert/le-nouveau-siecle-15043_L
+      - https://www.songkick.com/venues/592126-nouveau-siecle
+      - https://www.songkick.com/venues/4535550-le-nouveau-siecle-auditorium
+      - https://www.songkick.com/venues/3506949-auditorium-du-nouveau-siecle
 
   - id: spotlight
     name: Le Spotlight
-    urls: []   # à compléter : page programmation du Spotlight
+    urls: []   # à compléter
 
   - id: festivals
     name: Festivals Lille
-    urls: []   # Series Mania, Lillarious : ajoutés à la main ci-dessous
+    urls: []
 
-# Événements ajoutés à la main (festivals annuels, dates connues à l'avance).
-# date seule = événement sur la journée ; "end" optionnel (inclus).
 manual: []
 # Exemple (retire les # et le "[]" ci-dessus, puis mets les vraies dates) :
 # manual:
@@ -39,7 +40,3 @@ manual: []
 #     start: AAAA-MM-JJ
 #     end: AAAA-MM-JJ
 #     url: https://seriesmania.com
-#   - source: festivals
-#     name: Lillarious
-#     start: AAAA-MM-JJ
-#     end: AAAA-MM-JJ
